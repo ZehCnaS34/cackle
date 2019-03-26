@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+
+let fn = require("../lib/index.js").default;
+
+fn(require("minimist")(process.argv.slice(2)));
