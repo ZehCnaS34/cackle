@@ -1,20 +1,42 @@
 import atlas from "./atlas";
 import * as path from "path";
+import * as R from "ramda";
+import * as mkdirp from "mkdirp";
+import * as fs from "fs";
 
-export function createTree(def, options) {
-  const abs = path.resolve(atlas.packages, options.packageName);
+const mkdir = function(path) {
+  return new Promise((resolve, reject) => {
+    mkdirp(path, error => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+};
 
-  const defs = [def];
-  const names = Object.keys(def);
+const mkfile = function(name, value, pth) {
+  return new Promise((resolve, reject) => {
+    fs.writeFile(path.resolve(pth, name), value, err => {
+      if (err) reject();
+      else resolve();
+    });
+  });
+};
 
-  while (names.length > 0) {
-    const name = names.pop();
-    const def = defs.pop();
+export async function buildTree(def, basePath = "./name") {
+  await mkdir(basePath);
 
-    switch (typeof def[name]) {
-      case "string":
-      case "object":
+  for (const key in def) {
+    const value = def[key];
+    switch (typeof def[key]) {
+      case "string": // create file
+        mkfile(key, value, basePath);
+        break;
+      case "object": // create directory and recurs
+        await mkdir(path.resolve(basePath, key));
+        buildTree(value, path.resolve(basePath, key));
+        break;
+      default:
+        throw new Error("This is interesting");
     }
   }
-
 }
