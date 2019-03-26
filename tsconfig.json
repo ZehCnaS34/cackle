@@ -3,7 +3,7 @@
     "target": "es2017",
     "lib": ["es6", "es2016"],
     "module": "commonjs",
-    "outDir": "lib",
+    "outDir": "lib"
   },
   "include": ["src/*.ts"],
   "declaration": true
