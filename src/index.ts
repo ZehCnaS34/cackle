@@ -7,6 +7,14 @@ import { Observable, of, config } from "rxjs";
 import babel from "rollup-plugin-babel";
 import { link, pack } from "./npm";
 
+const packageTree = {
+  "src": {
+    "index.js": ""
+  },
+  "lib": {},
+  "package.json": ""
+}
+
 function camel(str: string) {
   return str.replace(/([a-zA-Z])\-([a-zA-Z])/g, function(_, ...strings) {
     const [a, b] = strings;
@@ -172,8 +180,10 @@ class WebpackBuilder implements Builder {
       output: {
         filename: `index.js`,
         path: path.resolve(atlas.packages, name, "lib"),
-        // library: camel(name),
-        libraryTarget: "umd"
+        library: camel(name),
+        libraryTarget: "umd",
+        umdNamedDefine: true,
+        globalObject: "typeof self !== 'undefined' ? self : this"
       },
       plugins: [new webpack.ProgressPlugin()],
       resolve: {
@@ -185,25 +195,25 @@ class WebpackBuilder implements Builder {
             test: /\.ts(x)?$/,
             exclude: /node_modules/,
             use: [
+              // {
+              //   loader: "babel-loader",
+              //   options: {
+              //     plugins: ["@babel/plugin-transform-runtime"],
+              //     presets: [
+              //       [
+              //         "@babel/preset-env",
+              //         {
+              //           targets: "> 0.25%, not dead",
+              //           modules: "umd"
+              //         }
+              //       ],
+              //       "@babel/preset-typescript",
+              //       "@babel/preset-react",
+              //     ]
+              //   }
+              // },
               {
-                loader: "babel-loader",
-                options: {
-                  plugins: ["@babel/plugin-transform-runtime"],
-                  presets: [
-                    [
-                      "@babel/preset-env",
-                      {
-                        targets: "> 0.25%, not dead",
-                        modules: "umd"
-                      }
-                    ],
-                    "@babel/preset-typescript",
-                    "@babel/preset-react",
-                  ]
-                }
-              },
-              {
-                loader: "ts-loader"
+                loader: "awesome-typescript-loader",
               }
             ]
           },
@@ -217,7 +227,7 @@ class WebpackBuilder implements Builder {
                 "@babel/preset-react",
                 "@babel/preset-flow"
               ],
-              plugins: ["@babel/plugin-transform-runtime"]
+              plugins: ["@babel/plugin-transform-runtime", "add-module-exports"]
             }
           }
         ]
@@ -235,6 +245,7 @@ class WebpackBuilder implements Builder {
         }
       }
       const config = this.getConfig(packageName);
+      console.log(config);
       const compiler = webpack(config);
 
       compiler.watch({ aggregateTimeout: 300 }, handler);

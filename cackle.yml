@@ -6,3 +6,6 @@ packages:
   - cc-common-components
   - cc-redux-middleware
   - cc-why
+  - cackle
+  - cc-test
+  - cc-lib
