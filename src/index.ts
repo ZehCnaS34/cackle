@@ -6,14 +6,32 @@ import * as webpack from "webpack";
 import { Observable, of, config } from "rxjs";
 import babel from "rollup-plugin-babel";
 import { link, pack } from "./npm";
+import { buildTree } from "./tree";
 
-const packageTree = {
-  "src": {
-    "index.js": ""
+const packageTree = packageName =>
+  buildTree(
+    {
+      src: {
+        "index.js": ""
+      },
+      lib: {},
+      "package.json": `{
+  "name": "${packageName}",
+  "version": "1.0.0",
+  "description": "",
+  "main": "lib/index.js",
+  "directories": {
+    "lib": "lib"
   },
-  "lib": {},
-  "package.json": ""
-}
+  "scripts": {
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}`
+    },
+    path.resolve(atlas.packages, packageName)
+  );
 
 function camel(str: string) {
   return str.replace(/([a-zA-Z])\-([a-zA-Z])/g, function(_, ...strings) {
@@ -158,21 +176,38 @@ interface Builder {
 
 class WebpackBuilder implements Builder {
   name: BuildSystemName;
+
+  static BabelOptions = {
+    plugins: [
+      "@babel/plugin-transform-runtime",
+      "babel-plugin-add-module-exports"
+    ],
+    presets: [
+      [
+        "@babel/preset-env",
+        {
+          targets: "> 0.25%, not dead",
+          modules: "umd"
+        }
+      ],
+      "@babel/preset-typescript",
+      "@babel/preset-react"
+    ]
+  };
+
   constructor() {
     this.name = "webpack";
   }
 
   getConfig(name: string): webpack.Configuration {
     let index = fs
-      .readdirSync(path.resolve(atlas.packages, name))
+      .readdirSync(path.resolve(atlas.packages, name, "src"))
       .includes("index.ts")
       ? "index.ts"
       : "index.js";
 
-    const entries = [path.resolve(atlas.packages, name, index)];
+    const entries = [path.resolve(atlas.packages, name, "src", index)];
     if (STATE.variant === "app") entries.unshift("@babel/polyfill");
-
-    console.log(entries);
 
     return {
       mode: STATE.env,
@@ -195,25 +230,12 @@ class WebpackBuilder implements Builder {
             test: /\.ts(x)?$/,
             exclude: /node_modules/,
             use: [
-              // {
-              //   loader: "babel-loader",
-              //   options: {
-              //     plugins: ["@babel/plugin-transform-runtime"],
-              //     presets: [
-              //       [
-              //         "@babel/preset-env",
-              //         {
-              //           targets: "> 0.25%, not dead",
-              //           modules: "umd"
-              //         }
-              //       ],
-              //       "@babel/preset-typescript",
-              //       "@babel/preset-react",
-              //     ]
-              //   }
-              // },
               {
-                loader: "awesome-typescript-loader",
+                loader: "babel-loader",
+                options: WebpackBuilder.BabelOptions
+              },
+              {
+                loader: "awesome-typescript-loader"
               }
             ]
           },
@@ -221,14 +243,7 @@ class WebpackBuilder implements Builder {
             test: /\.js(x)?$/,
             loader: "babel-loader",
             exclude: /node_modules/,
-            options: {
-              presets: [
-                "@babel/preset-env",
-                "@babel/preset-react",
-                "@babel/preset-flow"
-              ],
-              plugins: ["@babel/plugin-transform-runtime", "add-module-exports"]
-            }
+            options: WebpackBuilder.BabelOptions
           }
         ]
       }
@@ -454,19 +469,7 @@ class Command {
     let packageName = this.packageName(name);
 
     try {
-      fs.mkdirSync(path.resolve(atlas.packages, packageName));
-      fs.writeFile(
-        path.resolve(atlas.packages, packageName, "package.json"),
-        templatePackage(packageName),
-        "utf-8",
-        err => {}
-      );
-      fs.writeFile(
-        path.resolve(atlas.packages, packageName, "index.js"),
-        "",
-        "utf-8",
-        err => {}
-      );
+      await packageTree(packageName);
       this.configuration.addPackage(packageName);
       await this.configuration.updateManifest();
     } catch (error) {}
