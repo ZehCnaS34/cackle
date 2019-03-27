@@ -1,6 +1,12 @@
 import * as path from "path";
 
 export default {
+  get resources() {
+    return path.resolve(__dirname, "../resources");
+  },
+  get templates() {
+    return path.resolve(this.resources, "templates");
+  },
   get root() {
     return process.cwd();
   },

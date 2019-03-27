@@ -3,10 +3,26 @@ import * as path from "path";
 import * as yaml from "js-yaml";
 import { rollup, watch } from "rollup";
 import * as webpack from "webpack";
-import { Observable, of, config } from "rxjs";
+import atlas from "./atlas";
+import { Observable, of } from "rxjs";
 import babel from "rollup-plugin-babel";
-import { link, pack } from "./npm";
+import { link, pack, install } from "./npm";
 import { buildTree } from "./tree";
+import templates from "./templates";
+import { camel } from "./utils";
+import chalk from "chalk";
+const pkg = require("../package.json");
+
+const cackleProject = () => {
+  buildTree(
+    {
+      "cackle.yml": templates.cackleFile(),
+      packages: {},
+      "tsconfig.json": templates.tsConfig()
+    },
+    process.cwd()
+  );
+};
 
 const packageTree = packageName =>
   buildTree(
@@ -15,75 +31,29 @@ const packageTree = packageName =>
         "index.js": ""
       },
       lib: {},
-      "package.json": `{
-  "name": "${packageName}",
-  "version": "1.0.0",
-  "description": "",
-  "main": "lib/index.js",
-  "directories": {
-    "lib": "lib"
-  },
-  "scripts": {
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
-}`
+      "package.json": templates.packageJson({ packageName })
     },
     path.resolve(atlas.packages, packageName)
   );
-
-function camel(str: string) {
-  return str.replace(/([a-zA-Z])\-([a-zA-Z])/g, function(_, ...strings) {
-    const [a, b] = strings;
-    return a + b.toUpperCase();
-  });
-}
-
-function templatePackage(name) {
-  return `{
-  "name": "${name}",
-  "version": "1.0.0",
-  "description": "",
-  "main": "lib/index.js",
-  "directories": {
-    "lib": "lib"
-  },
-  "scripts": {
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
-}`;
-}
 
 interface State {
   packageName: string;
   env: "production" | "development" | "none";
   variant: "app" | "module";
+  features: Array<string>;
 }
 
 const STATE: State = {
   packageName: null,
   env: "development",
-  variant: "module"
-};
-
-const atlas = {
-  get root() {
-    return process.cwd();
-  },
-  get config() {
-    return path.resolve(this.root, "cackle.yml");
-  },
-  get packages() {
-    return path.resolve(this.root, "packages");
-  }
+  variant: "module",
+  features: []
 };
 
 interface PackageDefinition {
   [packageName: string]: {
     buildSystem: BuildSystemName;
+    features?: string;
     public?: boolean;
   };
 }
@@ -132,6 +102,7 @@ class Configuration {
   loadManifest() {
     try {
       this.manifest = yaml.safeLoad(fs.readFileSync(atlas.config, "utf-8"));
+      if (!this.manifest.packages) this.manifest.packages = [];
     } catch (error) {
       console.log("Failed to load manifest");
     }
@@ -168,6 +139,82 @@ class Configuration {
 
 type BuildSystemName = "webpack" | "rollup";
 
+class ProfileBuilder {
+  buildSystem: BuildSystemName;
+  profile: any;
+
+  constructor(buildSystem: BuildSystemName) {
+    this.buildSystem = buildSystem;
+    this.profile = {};
+    switch (buildSystem) {
+      case "rollup":
+        break;
+      case "webpack":
+        this.profile = {
+          plugins: [
+            BabelPlugins.transformRuntime,
+            BabelPlugins.addModuleExports,
+            BabelPlugins.classProperties
+          ],
+          presets: [BabelPresets.env]
+        };
+        break;
+      default:
+        throw new Error("Unsupported build system");
+    }
+  }
+
+  react() {
+    switch (this.buildSystem) {
+      case "webpack":
+        if (this.profile.presets) {
+          this.profile.presets.push(BabelPresets.react);
+        }
+        break;
+    }
+    return this;
+  }
+
+  flow() {
+    switch (this.buildSystem) {
+      case "webpack":
+        if (this.profile.presets) {
+          this.profile.presets.push(BabelPresets.flow);
+        }
+        break;
+    }
+    return this;
+  }
+
+  typescript() {
+    switch (this.buildSystem) {
+      case "webpack":
+        if (this.profile.presets) {
+          this.profile.presets.push(BabelPresets.typescript);
+        }
+        break;
+    }
+    return this;
+  }
+
+  build() {
+    return this.profile;
+  }
+}
+
+const BabelPlugins = {
+  transformRuntime: "@babel/plugin-transform-runtime",
+  addModuleExports: "babel-plugin-add-module-exports",
+  classProperties: "@babel/plugin-proposal-class-properties"
+};
+
+const BabelPresets = {
+  env: "@babel/preset-env",
+  flow: "@babel/preset-flow",
+  typescript: "@babel/preset-typescript",
+  react: "@babel/preset-react"
+};
+
 interface Builder {
   name: BuildSystemName;
   watch: (packageName: string) => Observable<any>;
@@ -178,20 +225,18 @@ class WebpackBuilder implements Builder {
   name: BuildSystemName;
 
   static BabelOptions = {
-    plugins: [
-      "@babel/plugin-transform-runtime",
-      "babel-plugin-add-module-exports"
-    ],
+    plugins: [BabelPlugins.transformRuntime, BabelPlugins.addModuleExports],
     presets: [
       [
-        "@babel/preset-env",
+        BabelPresets.env,
         {
           targets: "> 0.25%, not dead",
           modules: "umd"
         }
       ],
-      "@babel/preset-typescript",
-      "@babel/preset-react"
+      BabelPresets.flow,
+      BabelPresets.typescript,
+      BabelPresets.react
     ]
   };
 
@@ -208,6 +253,24 @@ class WebpackBuilder implements Builder {
 
     const entries = [path.resolve(atlas.packages, name, "src", index)];
     if (STATE.variant === "app") entries.unshift("@babel/polyfill");
+    const babelOptions = new ProfileBuilder("webpack");
+
+    // Adding features
+    if (
+      true ||
+      STATE.features.includes("typescript") ||
+      STATE.features.includes("ts")
+    )
+      babelOptions.typescript();
+    if (true || STATE.features.includes("flow")) babelOptions.flow();
+    if (
+      true ||
+      STATE.features.includes("react") ||
+      STATE.features.includes("jsx")
+    )
+      babelOptions.react();
+
+    console.log(babelOptions.build());
 
     return {
       mode: STATE.env,
@@ -232,7 +295,7 @@ class WebpackBuilder implements Builder {
             use: [
               {
                 loader: "babel-loader",
-                options: WebpackBuilder.BabelOptions
+                options: babelOptions.build()
               },
               {
                 loader: "awesome-typescript-loader"
@@ -243,7 +306,7 @@ class WebpackBuilder implements Builder {
             test: /\.js(x)?$/,
             loader: "babel-loader",
             exclude: /node_modules/,
-            options: WebpackBuilder.BabelOptions
+            options: babelOptions.build()
           }
         ]
       }
@@ -260,7 +323,6 @@ class WebpackBuilder implements Builder {
         }
       }
       const config = this.getConfig(packageName);
-      console.log(config);
       const compiler = webpack(config);
 
       compiler.watch({ aggregateTimeout: 300 }, handler);
@@ -276,7 +338,9 @@ class WebpackBuilder implements Builder {
           resolve(stats);
         }
       }
-      const compiler = webpack(this.getConfig(packageName));
+      const config = this.getConfig(packageName);
+      console.log(config);
+      const compiler = webpack(config);
 
       compiler.run(handler);
     });
@@ -377,6 +441,7 @@ interface Minimist {
   env: "development" | "production";
   variant: "app" | "module";
   app: boolean;
+  features: string;
 }
 
 type Arg = string | number | boolean;
@@ -388,14 +453,45 @@ class Command {
 
   static parse(minimist: Minimist): Command {
     let [cmd, ...args] = minimist._;
-    let command = new Command();
-    command.cmd = cmd;
-    command.args = args;
-    STATE.env = minimist.p ? "production" : "development";
-    STATE.env = minimist.env || STATE.env;
-    STATE.variant = minimist.variant || STATE.variant;
-    STATE.variant = minimist.app ? "app" : STATE.variant;
-    return command;
+    if (cmd) {
+      let command = new Command();
+      command.cmd = cmd;
+      command.args = args;
+
+      STATE.env = minimist.p ? "production" : "development";
+      STATE.env = minimist.env || STATE.env;
+      STATE.variant = minimist.variant || STATE.variant;
+      STATE.variant = minimist.app ? "app" : STATE.variant;
+      STATE.features = minimist.features ? minimist.features.split(",") : [];
+
+      return command;
+    } else {
+      console.log("Cackle 🤣");
+      console.log("A minimal boilerplate webpack mono repo.");
+      console.log();
+      console.log(chalk.red("Commands:"));
+      console.log(
+        `\t ${chalk.green("init")} - Bootstrap a directory to support cackle.`
+      );
+      console.log(
+        `\t ${chalk.green(
+          "create"
+        )} [package-name] - Create a new cackle package.`
+      );
+      console.log(`\t ${chalk.green("pack")} - Npm pack all cackle packages.`);
+      console.log(
+        `\t ${chalk.green(
+          "build"
+        )} [package-name] - Build specified cackle package.`
+      );
+      console.log(
+        `\t ${chalk.green(
+          "watch"
+        )} [package-name] - Build and watch specified cackle package.`
+      );
+      console.log();
+      return null;
+    }
   }
 
   constructor() {
@@ -420,6 +516,7 @@ class Command {
 
   async exec(): Promise<void> {
     try {
+      console.log(`Starting :${chalk.yellow(this.cmd)}: command.`);
       return await this[this.cmd]();
     } catch (error) {}
   }
@@ -465,6 +562,15 @@ class Command {
   }
 
   async init(): Promise<void> {
+    try {
+      const peers = Object.keys(pkg.peerDependencies).join(" ");
+      await cackleProject();
+      await install({ packages: peers, saveDev: true });
+      await install({ packages: "@babel/runtime", save: true });
+    } catch (error) {}
+  }
+
+  async create(): Promise<void> {
     const [name] = this.query("packageName");
     let packageName = this.packageName(name);
 
@@ -478,6 +584,7 @@ class Command {
 
 export default async function main(args: Minimist) {
   const command = Command.parse(args);
-  const result = await command.exec();
-  // console.log(result.unwrap());
+  if (command) {
+    const result = await command.exec();
+  }
 }
