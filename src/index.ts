@@ -13,7 +13,7 @@ import { camel } from "./utils";
 import chalk from "chalk";
 const pkg = require("../package.json");
 
-const cackleProject = () => {
+const createCackleProject = () => 
   buildTree(
     {
       "cackle.yml": templates.cackleFile(),
@@ -22,15 +22,15 @@ const cackleProject = () => {
     },
     process.cwd()
   );
-};
 
-const packageTree = packageName =>
+const createPackage = packageName =>
   buildTree(
     {
       src: {
-        "index.js": ""
+        "index.js": `// ${packageName}`
       },
       lib: {},
+      "tsconfig.json": templates.tsConfig(),
       "package.json": templates.packageJson({ packageName })
     },
     path.resolve(atlas.packages, packageName)
@@ -255,7 +255,7 @@ class WebpackBuilder implements Builder {
     if (STATE.variant === "app") entries.unshift("@babel/polyfill");
     const babelOptions = new ProfileBuilder("webpack");
 
-    // Adding features
+    // NOTE: Wrong. This should be in a the package definition.
     if (
       true ||
       STATE.features.includes("typescript") ||
@@ -270,10 +270,11 @@ class WebpackBuilder implements Builder {
     )
       babelOptions.react();
 
-    console.log(babelOptions.build());
+    console.log(babelOptions);
 
     return {
       mode: STATE.env,
+      context: path.resolve(atlas.packages, name),
       entry: entries,
       output: {
         filename: `index.js`,
@@ -564,20 +565,34 @@ class Command {
   async init(): Promise<void> {
     try {
       const peers = Object.keys(pkg.peerDependencies).join(" ");
-      await cackleProject();
+      await createCackleProject();
       await install({ packages: peers, saveDev: true });
       await install({ packages: "@babel/runtime", save: true });
     } catch (error) {}
   }
+
+  async link(): Promise<void> {}
 
   async create(): Promise<void> {
     const [name] = this.query("packageName");
     let packageName = this.packageName(name);
 
     try {
-      await packageTree(packageName);
+      await createPackage(packageName);
       this.configuration.addPackage(packageName);
       await this.configuration.updateManifest();
+
+      const pds = Object.keys(pkg.peerDependencies || {}).join(" ");
+      await install({
+        path: path.resolve(atlas.packages, packageName),
+        packages: pds,
+        saveDev: true
+      });
+      await install({
+        path: path.resolve(atlas.packages, packageName),
+        packages: "@babel/runtime",
+        save: true
+      });
     } catch (error) {}
   }
 }

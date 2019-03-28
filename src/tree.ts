@@ -39,4 +39,6 @@ export async function buildTree(def, basePath = "./name") {
         throw new Error("This is interesting");
     }
   }
+
+  return def;
 }
