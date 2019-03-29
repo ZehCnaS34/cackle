@@ -13,7 +13,7 @@ import { camel } from "./utils";
 import chalk from "chalk";
 const pkg = require("../package.json");
 
-const createCackleProject = () => 
+const createCackleProject = () =>
   buildTree(
     {
       "cackle.yml": templates.cackleFile(),
@@ -261,7 +261,7 @@ class WebpackBuilder implements Builder {
       STATE.features.includes("typescript") ||
       STATE.features.includes("ts")
     )
-      babelOptions.typescript();
+      false && babelOptions.typescript();
     if (true || STATE.features.includes("flow")) babelOptions.flow();
     if (
       true ||
@@ -279,7 +279,8 @@ class WebpackBuilder implements Builder {
       output: {
         filename: `index.js`,
         path: path.resolve(atlas.packages, name, "lib"),
-        library: camel(name),
+        // library: camel(name),
+        library: name,
         libraryTarget: "umd",
         umdNamedDefine: true,
         globalObject: "typeof self !== 'undefined' ? self : this"
@@ -582,17 +583,17 @@ class Command {
       this.configuration.addPackage(packageName);
       await this.configuration.updateManifest();
 
-      const pds = Object.keys(pkg.peerDependencies || {}).join(" ");
-      await install({
-        path: path.resolve(atlas.packages, packageName),
-        packages: pds,
-        saveDev: true
-      });
-      await install({
-        path: path.resolve(atlas.packages, packageName),
-        packages: "@babel/runtime",
-        save: true
-      });
+      // const pds = Object.keys(pkg.peerDependencies || {}).join(" ");
+      // await install({
+      //   path: path.resolve(atlas.packages, packageName),
+      //   packages: pds,
+      //   saveDev: true
+      // });
+      // await install({
+      //   path: path.resolve(atlas.packages, packageName),
+      //   packages: "@babel/runtime",
+      //   save: true
+      // });
     } catch (error) {}
   }
 }
