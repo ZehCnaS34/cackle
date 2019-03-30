@@ -1,17 +1,18 @@
+import chalk from "chalk";
 import * as fs from "fs";
-import * as path from "path";
 import * as yaml from "js-yaml";
-import { rollup, watch } from "rollup";
+import * as path from "path";
+import { rollup } from "rollup";
+import babel from "rollup-plugin-babel";
+import { Observable, of, observable } from "rxjs";
 import * as webpack from "webpack";
 import atlas from "./atlas";
-import { Observable, of } from "rxjs";
-import babel from "rollup-plugin-babel";
-import { link, pack, install } from "./npm";
-import { buildTree } from "./tree";
+import { install, link, pack } from "./npm";
 import templates from "./templates";
+import { buildTree } from "./tree";
 import { camel } from "./utils";
-import chalk from "chalk";
 const pkg = require("../package.json");
+const WebpackDevServer = require("webpack-dev-server");
 
 const createCackleProject = () =>
   buildTree(
@@ -41,13 +42,15 @@ interface State {
   env: "production" | "development" | "none";
   variant: "app" | "module";
   features: Array<string>;
+  serve: boolean;
 }
 
 const STATE: State = {
   packageName: null,
   env: "development",
   variant: "module",
-  features: []
+  features: [],
+  serve: false
 };
 
 interface PackageDefinition {
@@ -155,7 +158,7 @@ class ProfileBuilder {
             BabelPlugins.addModuleExports,
             BabelPlugins.classProperties,
             BabelPlugins.syntaxDynamicImport,
-            BabelPlugins.transformRuntime,
+            BabelPlugins.transformRuntime
           ],
           presets: [
             [
@@ -228,6 +231,7 @@ interface Builder {
   name: BuildSystemName;
   watch: (packageName: string) => Observable<any>;
   build: (packageName: string) => Promise<any>;
+  serve: (packageName: string) => Observable<any>;
 }
 
 class WebpackBuilder implements Builder {
@@ -267,17 +271,17 @@ class WebpackBuilder implements Builder {
       mode: STATE.env,
       context: path.resolve(atlas.packages, name),
       // context: atlas.cackleRoot,
-      devtool: 'source-map',
+      devtool: "source-map",
       entry: entries.length === 1 ? entries[0] : entries,
       output: {
         filename: `index.js`,
         path: path.resolve(atlas.packages, name, "lib"),
         library: camel(name),
-        chunkFilename: '[name].chunk.js',
+        chunkFilename: "[name].chunk.js",
         // library: name,
         // jsonpFunction: camel(name) + "JSON_P",
         libraryTarget: "umd",
-        umdNamedDefine: true,
+        umdNamedDefine: true
         // globalObject: "typeof self !== 'undefined' ? self : this"
       },
       plugins: [new webpack.ProgressPlugin()],
@@ -342,6 +346,31 @@ class WebpackBuilder implements Builder {
       compiler.run(handler);
     });
   }
+
+  serve(packageName: string): Observable<any> {
+    return new Observable(observer => {
+      console.log("awesome");
+      const config = this.getConfig(packageName);
+      config.output.filename = "bundle.js";
+      const compiler = webpack(config);
+
+      try {
+        const server = new WebpackDevServer(compiler, {
+          contentBase: [
+            path.resolve(atlas.packages, packageName, "lib"),
+            path.resolve(atlas.resources, "public")
+          ],
+          historyApiFallback: true
+        });
+        server.listen(8080, "localhost", () => {
+          observer.next("hi");
+          console.log("hi");
+        });
+      } catch (error) {
+        console.log("failed", error);
+      }
+    });
+  }
 }
 
 class RollupBuilder implements Builder {
@@ -377,6 +406,10 @@ class RollupBuilder implements Builder {
       });
     });
   }
+
+  serve(packageName: string): Observable<any> {
+    return new Observable(() => {});
+  }
 }
 
 class Package {
@@ -401,6 +434,21 @@ class Package {
       default:
         throw new Error(`${name} is an unsupported build system.`);
     }
+  }
+
+  async serve() {
+    let { [this.name]: config } = this.getConfiguration();
+    const builder = this.getBuilder(config.buildSystem);
+
+    return new Promise((resolve, reject) => {
+      const unsubscribe = builder.serve(this.name).subscribe({
+        complete: resolve,
+        error: reject,
+        next: stats => {
+          console.log(stats.toString({ colors: true }));
+        }
+      });
+    });
   }
 
   async watch() {
@@ -439,6 +487,7 @@ interface Minimist {
   variant: "app" | "module";
   app: boolean;
   features: string;
+  serve: boolean;
 }
 
 type Arg = string | number | boolean;
@@ -538,6 +587,14 @@ class Command {
     new Package(packageName).build();
   }
 
+  async serve(): Promise<void> {
+    await Promise.all(
+      this.args.map(name =>
+        new Package(this.packageName(name as string)).serve()
+      )
+    );
+  }
+
   async watch(): Promise<void> {
     await Promise.all(
       this.args.map(name =>
@@ -585,6 +642,12 @@ class Command {
 export default async function main(args: Minimist) {
   const command = Command.parse(args);
   if (command) {
-    const result = await command.exec();
+    try {
+      const result = await command.exec();
+    } catch (error) {
+      console.log(error);
+    }
+  } else {
+    console.log("hm");
   }
 }
