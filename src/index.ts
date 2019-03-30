@@ -152,11 +152,19 @@ class ProfileBuilder {
       case "webpack":
         this.profile = {
           plugins: [
-            BabelPlugins.transformRuntime,
             BabelPlugins.addModuleExports,
-            BabelPlugins.classProperties
+            BabelPlugins.classProperties,
+            BabelPlugins.syntaxDynamicImport,
+            BabelPlugins.transformRuntime,
           ],
-          presets: [BabelPresets.env]
+          presets: [
+            [
+              BabelPresets.env,
+              {
+                modules: "commonjs"
+              }
+            ]
+          ]
         };
         break;
       default:
@@ -205,7 +213,8 @@ class ProfileBuilder {
 const BabelPlugins = {
   transformRuntime: "@babel/plugin-transform-runtime",
   addModuleExports: "babel-plugin-add-module-exports",
-  classProperties: "@babel/plugin-proposal-class-properties"
+  classProperties: "@babel/plugin-proposal-class-properties",
+  syntaxDynamicImport: "@babel/plugin-syntax-dynamic-import"
 };
 
 const BabelPresets = {
@@ -223,22 +232,6 @@ interface Builder {
 
 class WebpackBuilder implements Builder {
   name: BuildSystemName;
-
-  static BabelOptions = {
-    plugins: [BabelPlugins.transformRuntime, BabelPlugins.addModuleExports],
-    presets: [
-      [
-        BabelPresets.env,
-        {
-          targets: "> 0.25%, not dead",
-          modules: "umd"
-        }
-      ],
-      BabelPresets.flow,
-      BabelPresets.typescript,
-      BabelPresets.react
-    ]
-  };
 
   constructor() {
     this.name = "webpack";
@@ -270,20 +263,22 @@ class WebpackBuilder implements Builder {
     )
       babelOptions.react();
 
-    console.log(babelOptions);
-
     return {
       mode: STATE.env,
       context: path.resolve(atlas.packages, name),
-      entry: entries,
+      // context: atlas.cackleRoot,
+      devtool: 'source-map',
+      entry: entries.length === 1 ? entries[0] : entries,
       output: {
         filename: `index.js`,
         path: path.resolve(atlas.packages, name, "lib"),
-        // library: camel(name),
-        library: name,
+        library: camel(name),
+        chunkFilename: '[name].chunk.js',
+        // library: name,
+        // jsonpFunction: camel(name) + "JSON_P",
         libraryTarget: "umd",
         umdNamedDefine: true,
-        globalObject: "typeof self !== 'undefined' ? self : this"
+        // globalObject: "typeof self !== 'undefined' ? self : this"
       },
       plugins: [new webpack.ProgressPlugin()],
       resolve: {
@@ -340,8 +335,8 @@ class WebpackBuilder implements Builder {
           resolve(stats);
         }
       }
+
       const config = this.getConfig(packageName);
-      console.log(config);
       const compiler = webpack(config);
 
       compiler.run(handler);
@@ -508,6 +503,7 @@ class Command {
     }
     return output;
   }
+
   packageName(name: string) {
     if (name.startsWith(this.configuration.prefix)) return name;
 
@@ -582,18 +578,6 @@ class Command {
       await createPackage(packageName);
       this.configuration.addPackage(packageName);
       await this.configuration.updateManifest();
-
-      // const pds = Object.keys(pkg.peerDependencies || {}).join(" ");
-      // await install({
-      //   path: path.resolve(atlas.packages, packageName),
-      //   packages: pds,
-      //   saveDev: true
-      // });
-      // await install({
-      //   path: path.resolve(atlas.packages, packageName),
-      //   packages: "@babel/runtime",
-      //   save: true
-      // });
     } catch (error) {}
   }
 }

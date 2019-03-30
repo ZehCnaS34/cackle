@@ -1,6 +1,9 @@
 import * as path from "path";
 
 export default {
+  get cackleRoot() {
+    return path.resolve(__dirname, "..");
+  },
   get resources() {
     return path.resolve(__dirname, "../resources");
   },
