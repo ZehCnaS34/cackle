@@ -281,7 +281,8 @@ class WebpackBuilder implements Builder {
         // library: name,
         // jsonpFunction: camel(name) + "JSON_P",
         libraryTarget: "umd",
-        umdNamedDefine: true
+        umdNamedDefine: true,
+        globalObject: "global"
         // globalObject: "typeof self !== 'undefined' ? self : this"
       },
       plugins: [new webpack.ProgressPlugin()],
@@ -308,6 +309,10 @@ class WebpackBuilder implements Builder {
             loader: "babel-loader",
             exclude: /node_modules/,
             options: babelOptions.build()
+          },
+          {
+            test: /\.worker\.js$/,
+            use: { loader: "service-worker" }
           }
         ]
       }
@@ -356,6 +361,7 @@ class WebpackBuilder implements Builder {
 
       try {
         const server = new WebpackDevServer(compiler, {
+          hot: true,
           contentBase: [
             path.resolve(atlas.packages, packageName, "lib"),
             path.resolve(atlas.resources, "public")
